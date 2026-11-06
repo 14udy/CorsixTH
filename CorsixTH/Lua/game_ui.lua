@@ -36,6 +36,8 @@ local Announcer = _G["Announcer"]
 local shake_screen_max_movement = 50 --pixels
 
 -- 0.002 is about 5 pixels on a 1920 pixel display
+local SDL = require("sdl")
+
 local multigesture_pinch_sensitivity_factor = 0.002
 -- combined with the above, multiplying by 100 means minimum current_momentum.z for any detected pinch
 -- will result in a call to adjustZoom in the onTick method
@@ -737,42 +739,34 @@ end
 --!param x (float) normalised x value of the gesture
 --!param y (float) normalised y value of the gesture
 --!return (boolean) event processed indicator
+--! Two-finger gestures: pinch to zoom, drag to scroll the map.
+--! A second finger also cancels whatever the first finger was doing.
 function GameUI:onMultiGesture(numfingers, dTheta, dDist, x, y)
-  -- only deal with 2 finger events for now
-  if (numfingers == 2) then
-    -- calculate magnitude of pinch
-    local mag = math.abs(dDist)
-    if mag > multigesture_pinch_sensitivity_factor then
-      -- pinch action - constant needs to be tweaked
-      self.current_momentum.z = self.current_momentum.z + dDist * multigesture_pinch_amplification_factor
-      if self.current_momentum.z > 0.5 then
-        return
-      end
-      -- scroll map
-
-      -- ANDROID: If we're not allowed to scroll by the control scheme, then return quickly
-      if (self.app.config.scroll_mode ~= 2) then
-        return false
-      end
-
-      local normx = self.app.config.width * x
-      local normy = self.app.config.height * y
-
-      if self.multigesturemove.x == 0.0 then
-        self.multigesturemove.x = normx
-        self.multigesturemove.y = normy
-      else
-        local dx = normx - self.multigesturemove.x
-        local dy = normy - self.multigesturemove.y
-        self.current_momentum.x = self.current_momentum.x - dx/4
-        self.current_momentum.y = self.current_momentum.y - dy/4
-        self.multigesturemove.x = normx
-        self.multigesturemove.y = normy
-      end
-      return true
-    end
+  if numfingers ~= 2 then
+    return false
   end
-  return false
+  self:cancelSingleTouch()
+
+  -- Pinch: zoom.
+  if math.abs(dDist) > multigesture_pinch_sensitivity_factor then
+    self.current_momentum.z = self.current_momentum.z + dDist * multigesture_pinch_amplification_factor
+  end
+
+  -- Drag: scroll, if the control scheme uses two fingers for that.
+  if self.app.config.scroll_mode ~= 2 then
+    return true
+  end
+  local cx = self.app.config.width * x
+  local cy = self.app.config.height * y
+  local now = SDL.getTicks()
+  local last = self.two_finger_scroll
+  -- A gap in the events means the fingers were lifted: start a new drag.
+  if last and now - last.time < 150 then
+    local zoom = self.zoom_factor
+    self:scrollMap((last.x - cx) / zoom, (last.y - cy) / zoom, true)
+  end
+  self.two_finger_scroll = { x = cx, y = cy, time = now }
+  return true
 end
 
 function GameUI:onMouseWheel(x, y)
@@ -959,7 +953,9 @@ end
 --! controls while placing objects).
 function GameUI:scrollMap(dx, dy, force)
 
-  if self.edit_room and not force then
+  -- ANDROID: one-finger scrolling is off while editing a room, as that finger
+  -- is busy with the room. With two-finger scrolling there's no clash.
+  if self.edit_room and not force and self.app.config.scroll_mode ~= 2 then
     return
   end
 

@@ -1359,10 +1359,32 @@ function UI:onTouchMove(fingerId, x, y, dx, dy)
   end
 end
 
+--! A second finger has landed: stop whatever the first finger was doing, so
+--! the two-finger gesture (scroll / zoom) takes over.
+function UI:cancelSingleTouch()
+  local state = self.touch_place
+  if state then
+    if not state.cancelled and state.start_cell and not state.window.closed then
+      -- Put the object back where it was before this touch.
+      local sx, sy = self:WorldToScreen(state.start_cell.x + 0.5, state.start_cell.y + 0.5)
+      self:movePlacingObjectTo(sx, sy)
+    end
+    state.cancelled = true
+    return
+  end
+  if self.touch_down or self.touch_moving then
+    if self.buttons_down.mouse_left then
+      self:onMouseUp(1, self.cursor_x or 0, self.cursor_y or 0)
+    end
+    self:resetTouch()
+  end
+end
+
 -- TOUCH: placing objects
 -- While an object (bench, desk, ...) is waiting to be placed:
---  * long press on the object: pick it up, then drag to move it
---  * drag anywhere else (or without the long press): scroll the map
+--  * one-finger drag: move the object (with two-finger scrolling, from
+--    anywhere; with one-finger scrolling, long press the object first and
+--    other drags scroll the map)
 --  * tap an empty spot: the object jumps there
 --  * double tap: rotate it
 --  * tap the tick in the placement window: place it
@@ -1451,9 +1473,18 @@ function UI:onTouchDownPlacing(x, y)
   self.touch_origin = { x = x, y = y }
   local state = {
     window = place, on_tick = on_tick, last_x = x, last_y = y,
-    ticks = 0, grabbed = false, scrolling = false,
+    ticks = 0, grabbed = false, scrolling = false, dragging = false,
+    -- With two-finger scrolling, one finger always moves the object.
+    drag_moves_object = self.app.config.scroll_mode == 2,
   }
-  if not on_tick and self:isTouchOnPlacingObject(place, x, y) then
+  if place.object_cell_x and place.object_cell_y then
+    state.start_cell = { x = place.object_cell_x, y = place.object_cell_y }
+  end
+  if state.drag_moves_object then
+    state.on_object = not on_tick and self:isTouchOnPlacingObject(place, x, y)
+  end
+  if not on_tick and place.object_cell_x and
+      (state.drag_moves_object or self:isTouchOnPlacingObject(place, x, y)) then
     -- Remember where the object is relative to the finger, so it moves with
     -- the finger rather than jumping under it.
     local cx, cy = self:WorldToScreen(place.object_cell_x + 0.5, place.object_cell_y + 0.5)
@@ -1465,7 +1496,7 @@ end
 
 function UI:onTouchTickPlacing()
   local state = self.touch_place
-  if state.grab and not state.grabbed and not state.scrolling then
+  if state.grab and not state.drag_moves_object and not state.grabbed and not state.scrolling then
     state.ticks = state.ticks + 1
     if state.ticks >= placing_grab_ticks then
       state.grabbed = true
@@ -1476,10 +1507,21 @@ end
 
 function UI:onTouchMovePlacing(x, y)
   local state = self.touch_place
-  if state.window.closed or state.on_tick then
+  if state.window.closed or state.on_tick or state.cancelled then
     return
   end
-  if state.grabbed then
+  if state.drag_moves_object then
+    if not state.dragging then
+      local tx, ty = x - self.touch_origin.x, y - self.touch_origin.y
+      if math.sqrt(tx * tx + ty * ty) < placing_drag_threshold then
+        return
+      end
+      state.dragging = true
+    end
+    if state.grab then
+      self:movePlacingObjectTo(x + state.grab.dx, y + state.grab.dy)
+    end
+  elseif state.grabbed then
     self:movePlacingObjectTo(x + state.grab.dx, y + state.grab.dy)
   else
     if not state.scrolling then
@@ -1515,7 +1557,7 @@ function UI:onTouchUpPlacing(x, y)
     return
   end
 
-  if state.grabbed or state.scrolling then
+  if state.grabbed or state.scrolling or state.dragging or state.cancelled then
     return
   end
 
@@ -1530,7 +1572,13 @@ function UI:onTouchUpPlacing(x, y)
     return
   end
   self.touch_last_tap = { time = now, x = x, y = y }
-  if not state.grab then
+  local on_object
+  if state.drag_moves_object then
+    on_object = state.on_object
+  else
+    on_object = state.grab ~= nil
+  end
+  if not on_object then
     self:movePlacingObjectTo(x, y)
   end
 end

@@ -199,7 +199,7 @@ function App:init()
     self.show_os_cursor = os.getenv("CTH_SIMULATE_TOUCH") ~= "0"
     -- On Android these come from the app's settings screen.
     -- scroll_mode 1 = drag one finger to scroll the map; 2 = two-finger scroll.
-    self.config.scroll_mode = self.config.scroll_mode or 1
+    self.config.scroll_mode = self.config.scroll_mode or 2
     if self.config.prevent_edge_scrolling_original == nil then
       self.config.prevent_edge_scrolling_original = self.config.prevent_edge_scrolling
     end
