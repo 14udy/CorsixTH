@@ -27,7 +27,9 @@ SOFTWARE.
 #include "bootstrap.h"
 #include "th.h"
 #include "th_lua_internal.h"
+#ifdef __ANDROID__
 #include "Android/androidhooks.h"
+#endif
 
 void lua_register_anims(const lua_register_state* pState);
 void lua_register_gfx(const lua_register_state* pState);
@@ -223,10 +225,6 @@ int l_get_compile_options(lua_State* L) {
 void luaT_setclosure(const lua_register_state* pState, lua_CFunction fn,
                      int iUps) {
   luaT_pushcclosure(pState->L, fn, iUps);
-}
-
-int mtcall(lua_State* L) {
-  printf ("test");
 }
 
 int luaopen_th(lua_State* L) {

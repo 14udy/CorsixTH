@@ -306,7 +306,9 @@ class render_target {
   void set_cursor_position(int iX, int iY);
 
   //! Take a screenshot and save it as a bitmap
+#ifdef __ANDROID__
   void savePNG(const char* sFile, SDL_Surface* rgbSurface, int width, int height);
+#endif
   bool take_screenshot(const char* sFile);
 
 

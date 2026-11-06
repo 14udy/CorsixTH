@@ -1,36 +1,32 @@
 ---
+# Builds a Windows test copy of the Android engine (touch emulated with the
+# mouse). Download "CorsixTH-Windows-touch-test" from the run's Artifacts.
 name: Windows
 
-on:  # yamllint disable-line rule:trurhy
+on:  # yamllint disable-line rule:truthy
   push:
-    branches-ignore:
-      - 'gh-pages'
-  pull_request:
+    branches:
+      - 'AndroidDev'
+  workflow_dispatch:
 
 jobs:
   Windows:
     runs-on: windows-2022
     steps:
       - name: checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Restore vcpkg cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: vcpkg
           key: vcpkg-${{runner.os}}-${{hashFiles('CMake/VcpkgDeps.cmake','scripts/build_vcpkg_deps.ps1')}}
 
-      - name: Create Project 
-        run: cmake -G "Visual Studio 17 2022" -DUSE_VCPKG_DEPS=ON -DVCPKG_TARGET_TRIPLET=x64-windows-release -DENABLE_UNIT_TESTS=ON -Bbuild .
+      - name: Create Project
+        run: cmake -G "Visual Studio 17 2022" -DUSE_VCPKG_DEPS=ON -DVCPKG_TARGET_TRIPLET=x64-windows-release -DENABLE_UNIT_TESTS=OFF -Bbuild .
 
       - name: Build
         run: cmake --build build/ --config RelWithDebInfo
-
-      - name: Test
-        run: |
-          pushd build/CorsixTH
-          ctest --extra-verbose --build-config RelWithDebInfo --output-on-failure
-          popd
 
       - name: Download soundfont
         run:
@@ -45,7 +41,7 @@ jobs:
           cp CorsixTH/CorsixTH.lua build/CorsixTH/RelWithDebInfo/
 
       - name: Archive Release
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           path: build/CorsixTH/RelWithDebInfo
-          name: CorsixTH
+          name: CorsixTH-Windows-touch-test

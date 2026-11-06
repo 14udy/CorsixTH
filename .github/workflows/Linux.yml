@@ -1,11 +1,9 @@
 ---
 name: Linux and Tests
 
+# Manual only: its ubuntu-20.04 runner no longer exists.
 on:  # yamllint disable-line rule:trurhy
-  push:
-    branches-ignore:
-      - 'gh-pages'
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   Linux:

@@ -28,6 +28,7 @@ SOFTWARE.
 
 #include "lua_sdl.h"
 #include "th_lua.h"
+#ifdef __ANDROID__
 #include "SDL2_framerate.h"
 
 #include "Android/androidevents.h"
@@ -35,6 +36,51 @@ SOFTWARE.
 // Frame Limiter
 int fps = 0;
 FPSmanager fps_manager;
+#else
+#include <cstdlib>
+
+// Desktop test build: no frame limiter, and no Android events.
+int fps = 0;
+
+namespace {
+
+// When on (the default), the left mouse button acts as a finger, like on a
+// phone, and ordinary mouse clicks/movement are hidden from the game.
+// Set the environment variable CTH_SIMULATE_TOUCH=0 to use the mouse normally.
+bool simulate_touch() {
+  static const bool enabled = [] {
+    const char* v = std::getenv("CTH_SIMULATE_TOUCH");
+    return v == nullptr || std::strcmp(v, "0") != 0;
+  }();
+  return enabled;
+}
+
+// Forward finger events to Lua the same way the Android build does.
+int handleAndroidEvents(SDL_Event& e, lua_State* dispatcher) {
+  switch (e.type) {
+    case SDL_FINGERDOWN:
+      lua_pushliteral(dispatcher, "touchdown");
+      break;
+    case SDL_FINGERUP:
+      lua_pushliteral(dispatcher, "touchup");
+      break;
+    case SDL_FINGERMOTION:
+      lua_pushliteral(dispatcher, "touchmove");
+      break;
+    default:
+      return -1;
+  }
+  lua_pushinteger(dispatcher, e.tfinger.fingerId);
+  lua_pushnumber(dispatcher, e.tfinger.x);
+  lua_pushnumber(dispatcher, e.tfinger.y);
+  if (e.type != SDL_FINGERMOTION) return 4;
+  lua_pushnumber(dispatcher, e.tfinger.dx);
+  lua_pushnumber(dispatcher, e.tfinger.dy);
+  return 6;
+}
+
+}  // namespace
+#endif
 
 namespace {
 
@@ -55,6 +101,15 @@ static int l_init(lua_State *L) {
     else
       luaL_argerror(L, i, "Expected SDL part name");
   }
+#ifndef __ANDROID__
+  if (simulate_touch()) {
+    // Mouse generates finger events; ordinary mouse events are dropped in
+    // the main loop, matching Android where touch doesn't generate mouse.
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "1");
+    // A real touchscreen should also send only touch, as on Android.
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+  }
+#endif
   if (SDL_Init(flags) != 0) {
     std::fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
     lua_pushboolean(L, 0);
@@ -147,16 +202,27 @@ int l_mainloop(lua_State *L) {
       SDL_AddTimer(usertick_period_ms, timer_frame_callback, nullptr);
   SDL_Event e;
 
+#ifdef __ANDROID__
 	SDL_initFramerate(&fps_manager);
 	if (fps != 0) {
 		SDL_setFramerate(&fps_manager, fps);
 	}
+#endif
 
 	while (SDL_WaitEvent(&e) != 0) {
     bool do_frame = false;
     bool do_timer = false;
     do {
       int nargs;
+#ifndef __ANDROID__
+      if (simulate_touch() &&
+          ((e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID) ||
+           ((e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) &&
+            e.button.which != SDL_TOUCH_MOUSEID))) {
+        // Phone has no mouse: hide it from the game.
+        continue;
+      }
+#endif
       switch (e.type) {
         case SDL_QUIT:
           goto leave_loop;
@@ -307,17 +373,21 @@ int l_mainloop(lua_State *L) {
         }
         lua_pop(dispatcher, resume_stack_size);
 
+#ifdef __ANDROID__
 				// Perform delay
 				if (fps != 0) {
 					SDL_framerateDelay(&fps_manager);
 				}
+#endif
 
       } while (fps_control->limit_fps == false && SDL_PollEvent(nullptr) == 0);
 		} else {
+#ifdef __ANDROID__
 			// Perform delay
 			if (fps != 0) {
 				SDL_framerateDelay(&fps_manager);
 			}
+#endif
 
     }
 
@@ -406,9 +476,11 @@ int luaopen_sdl(lua_State* L) {
 void set_fps_limit(int newfps) {
 
     fps = newfps;
+#ifdef __ANDROID__
     if (fps != 0) {
         SDL_initFramerate(&fps_manager);
         SDL_setFramerate(&fps_manager, newfps);
     }
+#endif
     printf("New framerate limit is %i \n", newfps);
 }

@@ -47,8 +47,10 @@ SOFTWARE.
 #endif
 // End of config file checking
 
+#ifdef __ANDROID__
 #include <lfs.h>
 #include "LPEG/lpeg.h"
+#endif
 
 //extern JavaVM* jvm;
 
@@ -171,8 +173,10 @@ int lua_main_no_eval(lua_State* L) {
   preload_lua_package(L, "persist", luaopen_persist);
   preload_lua_package(L, "sdl", luaopen_sdl);
   // These have been removed from CorsixTH trunk but are required for Android
+#ifdef __ANDROID__
   preload_lua_package(L, "lfs", luaopen_lfs);
   preload_lua_package(L, "lpeg", luaopen_lpeg);
+#endif
 
   // require "debug" (Harmless in Lua 5.1, useful in 5.2 for compatibility)
   luaT_execute(L, "require \"debug\"");

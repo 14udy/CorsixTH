@@ -40,7 +40,9 @@ SOFTWARE.
 #include <thread>
 
 #include "th_map.h"
+#ifdef __ANDROID__
 #include "lodepng.h"
+#endif
 
 #if SDL_VERSION_ATLEAST(2, 0, 10)
 
@@ -715,6 +717,7 @@ void render_target::set_cursor_position(int iX, int iY) {
   cursor_y = iY;
 }
 
+#ifdef __ANDROID__
 Uint32 getpixel(SDL_Surface *surface,int x,int y){
   int bpp = surface->format->BytesPerPixel;
   Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
@@ -784,6 +787,7 @@ void render_target::savePNG(const char* sFile, SDL_Surface* rgbSurface, int w, i
   std::thread pngThread(&writeToPng, sFile, image, outputWidth, outputHeight);
   pngThread.detach();
 }
+#endif
 
 bool render_target::take_screenshot(const char* sFile) {
 
@@ -805,10 +809,12 @@ bool render_target::take_screenshot(const char* sFile) {
     SDL_UnlockSurface(pRgbSurface);
 
     if (readStatus != -1) {
-      //SDL_SaveBMP(pRgbSurface, sFile);
-
+#ifdef __ANDROID__
       // ANDROID: Use PNG for Android
       savePNG(sFile, pRgbSurface, width, height);
+#else
+      SDL_SaveBMP(pRgbSurface, sFile);
+#endif
     }
   }
 

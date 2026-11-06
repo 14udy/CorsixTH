@@ -23,6 +23,28 @@ local rnc = require("rnc")
 local lfs = require("lfs")
 local TH = require("TH")
 local SDL = require("sdl")
+
+-- DESKTOP TEST BUILD: the Android engine provides TH.android and
+-- TH.android_events (settings, load/save screens, achievements). They don't
+-- exist on desktop, so stand in for them here so the Android Lua can run.
+local is_desktop_test = TH.android == nil
+if is_desktop_test then
+  local function log_stub(name)
+    return function(...) print("[android stub] " .. name) end
+  end
+  local function current_mode()
+    return TheApp.world and "game" or "menu"
+  end
+  TH.android = setmetatable({
+    showLoad = function() TheApp.ui:addWindow(UILoadGame(TheApp.ui, current_mode())) end,
+    showSave = function()
+      if TheApp.world then TheApp.ui:addWindow(UISaveGame(TheApp.ui)) end
+    end,
+    showSettings = function() TheApp.ui:addWindow(UIOptions(TheApp.ui, current_mode())) end,
+    reportError = function(kind, trace) print("[android stub] reportError " .. tostring(kind)) end,
+  }, { __index = function(_, k) return log_stub(k) end })
+  TH.android_events = setmetatable({}, { __index = function(_, k) return log_stub("android_events." .. k) end })
+end
 local runDebugger = corsixth.require("run_debugger")
 
 -- Increment each time a savegame break would occur
@@ -170,6 +192,15 @@ function App:init()
   -- Report operating system
   if compile_opts.os then
     self.os = compile_opts.os
+  end
+
+  if is_desktop_test then
+    -- On Android these come from the app's settings screen.
+    -- scroll_mode 1 = drag one finger to scroll the map; 2 = two-finger scroll.
+    self.config.scroll_mode = self.config.scroll_mode or 1
+    if self.config.prevent_edge_scrolling_original == nil then
+      self.config.prevent_edge_scrolling_original = self.config.prevent_edge_scrolling
+    end
   end
 
   -- ANDROID: store the original width and height
