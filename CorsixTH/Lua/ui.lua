@@ -1382,9 +1382,9 @@ end
 
 -- TOUCH: placing objects
 -- While an object (bench, desk, ...) is waiting to be placed:
---  * one-finger drag: move the object (with two-finger scrolling, from
---    anywhere; with one-finger scrolling, long press the object first and
---    other drags scroll the map)
+--  * one-finger drag starting on (or within a tile of) the object: move it.
+--    With one-finger scrolling, long press the object first; other drags
+--    scroll the map. With two-finger scrolling, other drags do nothing.
 --  * tap an empty spot: the object jumps there
 --  * double tap: rotate it
 --  * tap the tick in the placement window: place it
@@ -1474,7 +1474,8 @@ function UI:onTouchDownPlacing(x, y)
   local state = {
     window = place, on_tick = on_tick, last_x = x, last_y = y,
     ticks = 0, grabbed = false, scrolling = false, dragging = false,
-    -- With two-finger scrolling, one finger always moves the object.
+    -- With two-finger scrolling, a one-finger drag that starts on the object
+    -- moves it straight away (no long press); other drags do nothing.
     drag_moves_object = self.app.config.scroll_mode == 2,
   }
   if place.object_cell_x and place.object_cell_y then
@@ -1483,8 +1484,7 @@ function UI:onTouchDownPlacing(x, y)
   if state.drag_moves_object then
     state.on_object = not on_tick and self:isTouchOnPlacingObject(place, x, y)
   end
-  if not on_tick and place.object_cell_x and
-      (state.drag_moves_object or self:isTouchOnPlacingObject(place, x, y)) then
+  if not on_tick and place.object_cell_x and self:isTouchOnPlacingObject(place, x, y) then
     -- Remember where the object is relative to the finger, so it moves with
     -- the finger rather than jumping under it.
     local cx, cy = self:WorldToScreen(place.object_cell_x + 0.5, place.object_cell_y + 0.5)
