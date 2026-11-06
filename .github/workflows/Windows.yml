@@ -24,6 +24,10 @@ jobs:
           "VCPKG_ROOT=$env:RUNNER_TEMP/vcpkg" >> $env:GITHUB_ENV
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/vcpkg-cache" | Out-Null
           "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP/vcpkg-cache" >> $env:GITHUB_ENV
+          # lua.org is often unreachable; pre-fetch the identical tarball from a
+          # mirror (vcpkg still checks its SHA512).
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/vcpkg/downloads" | Out-Null
+          curl.exe -fsSL --retry 3 -o "$env:RUNNER_TEMP/vcpkg/downloads/lua-5.4.8.tar.gz" https://ftp.openbsd.org/pub/OpenBSD/distfiles/lua-5.4.8.tar.gz
 
       - name: Restore vcpkg binary cache
         uses: actions/cache@v4
