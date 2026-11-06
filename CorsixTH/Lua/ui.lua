@@ -273,7 +273,9 @@ function UI:setCursor(cursor)
     else
       -- Cursor is a Lua simulated cursor.
       -- Make the real cursor invisible, and simulate it with this.
-      WM.showCursor(self.mouse_released)
+      -- DESKTOP TEST BUILD: keep the Windows pointer visible while touch is
+      -- simulated, since the game's own cursor only moves when you tap.
+      WM.showCursor(self.mouse_released or self.app.show_os_cursor)
       self.simulated_cursor = cursor
     end
   end
@@ -630,7 +632,7 @@ function UI:setMouseReleased(released)
   -- If we are using a software cursor, show the hardware cursor on release
   -- and hide it again on capture.
   if self.cursor and not self.cursor.use then
-    WM.showCursor(released)
+    WM.showCursor(released or self.app.show_os_cursor)
   end
 
   self.app.video:setCaptureMouse(self.app.capturemouse and not self.app.mouse_released)

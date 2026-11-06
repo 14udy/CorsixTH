@@ -195,6 +195,8 @@ function App:init()
   end
 
   if is_desktop_test then
+    -- The mouse is pretending to be a finger (see sdl_core.cpp).
+    self.show_os_cursor = os.getenv("CTH_SIMULATE_TOUCH") ~= "0"
     -- On Android these come from the app's settings screen.
     -- scroll_mode 1 = drag one finger to scroll the map; 2 = two-finger scroll.
     self.config.scroll_mode = self.config.scroll_mode or 1
@@ -1238,7 +1240,16 @@ end
 
 local done_no_handler_warning = {}
 
+-- DESKTOP TEST BUILD: set CTH_DEBUG_INPUT=1 to log input events.
+local debug_input = os.getenv("CTH_DEBUG_INPUT") == "1"
+local quiet_events = { timer = true, frame = true }
+
 function App:dispatch(evt_type, ...)
+  if debug_input and not quiet_events[evt_type] then
+    local args = {}
+    for i = 1, select("#", ...) do args[i] = tostring((select(i, ...))) end
+    print("[input] " .. evt_type .. " " .. table.concat(args, " "))
+  end
   local handler = self.eventHandlers[evt_type]
   if handler then
     self:resetInfiniteLoopChecker()
