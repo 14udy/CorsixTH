@@ -1382,9 +1382,9 @@ end
 
 -- TOUCH: placing objects
 -- While an object (bench, desk, ...) is waiting to be placed:
---  * one-finger drag starting on (or within a tile of) the object: move it.
---    With one-finger scrolling, long press the object first; other drags
---    scroll the map. With two-finger scrolling, other drags do nothing.
+--  * long press on the object: pick it up, then drag to move it
+--  * other one-finger drags: scroll the map with one-finger scrolling;
+--    nothing with two-finger scrolling (two fingers scroll instead)
 --  * tap an empty spot: the object jumps there
 --  * double tap: rotate it
 --  * tap the tick in the placement window: place it
@@ -1474,15 +1474,9 @@ function UI:onTouchDownPlacing(x, y)
   local state = {
     window = place, on_tick = on_tick, last_x = x, last_y = y,
     ticks = 0, grabbed = false, scrolling = false, dragging = false,
-    -- With two-finger scrolling, a one-finger drag that starts on the object
-    -- moves it straight away (no long press); other drags do nothing.
-    drag_moves_object = self.app.config.scroll_mode == 2,
   }
   if place.object_cell_x and place.object_cell_y then
     state.start_cell = { x = place.object_cell_x, y = place.object_cell_y }
-  end
-  if state.drag_moves_object then
-    state.on_object = not on_tick and self:isTouchOnPlacingObject(place, x, y)
   end
   if not on_tick and place.object_cell_x and self:isTouchOnPlacingObject(place, x, y) then
     -- Remember where the object is relative to the finger, so it moves with
@@ -1496,7 +1490,7 @@ end
 
 function UI:onTouchTickPlacing()
   local state = self.touch_place
-  if state.grab and not state.drag_moves_object and not state.grabbed and not state.scrolling then
+  if state.grab and not state.grabbed and not state.scrolling and not state.dragging then
     state.ticks = state.ticks + 1
     if state.ticks >= placing_grab_ticks then
       state.grabbed = true
@@ -1510,23 +1504,19 @@ function UI:onTouchMovePlacing(x, y)
   if state.window.closed or state.on_tick or state.cancelled then
     return
   end
-  if state.drag_moves_object then
-    if not state.dragging then
-      local tx, ty = x - self.touch_origin.x, y - self.touch_origin.y
-      if math.sqrt(tx * tx + ty * ty) < placing_drag_threshold then
-        return
-      end
-      state.dragging = true
-    end
-    if state.grab then
-      self:movePlacingObjectTo(x + state.grab.dx, y + state.grab.dy)
-    end
-  elseif state.grabbed then
+  if state.grabbed then
     self:movePlacingObjectTo(x + state.grab.dx, y + state.grab.dy)
+  elseif state.dragging then
+    return -- A drag without the long press, with two-finger scrolling: ignore.
   else
     if not state.scrolling then
       local tx, ty = x - self.touch_origin.x, y - self.touch_origin.y
       if math.sqrt(tx * tx + ty * ty) < placing_drag_threshold then
+        return
+      end
+      -- Moved before the long press finished, so this isn't a pick-up.
+      if self.app.config.scroll_mode == 2 then
+        state.dragging = true
         return
       end
       state.scrolling = true
@@ -1572,13 +1562,7 @@ function UI:onTouchUpPlacing(x, y)
     return
   end
   self.touch_last_tap = { time = now, x = x, y = y }
-  local on_object
-  if state.drag_moves_object then
-    on_object = state.on_object
-  else
-    on_object = state.grab ~= nil
-  end
-  if not on_object then
+  if not state.grab then
     self:movePlacingObjectTo(x, y)
   end
 end
