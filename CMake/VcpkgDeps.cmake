@@ -41,6 +41,16 @@ else()
   set(_VCPKG_TARGET_TRIPLET "x86-windows")
 endif()
 
+# Manifest mode: use an existing vcpkg (VCPKG_ROOT) with the repo's vcpkg.json,
+# instead of the old pinned CorsixTH vcpkg fork, whose downloads have rotted.
+option(VCPKG_MANIFEST_DEPS "Use vcpkg.json with the vcpkg at VCPKG_ROOT" OFF)
+if(VCPKG_MANIFEST_DEPS)
+  set(VCPKG_INSTALLED_PATH ${CMAKE_BINARY_DIR}/vcpkg_installed/${_VCPKG_TARGET_TRIPLET})
+  file(TO_CMAKE_PATH "$ENV{VCPKG_ROOT}" _VCPKG_ROOT)
+  set(CMAKE_TOOLCHAIN_FILE ${_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake CACHE STRING "Vcpkg toolchain file")
+  return()
+endif()
+
 set(_VCPKG_ARGS "-VcpkgTriplet " ${_VCPKG_TARGET_TRIPLET})
 
 if(BUILD_ANIMVIEWER)

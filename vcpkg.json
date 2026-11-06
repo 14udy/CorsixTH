@@ -1,0 +1,18 @@
+{
+  "name": "corsixth",
+  "version-string": "0.67-android",
+  "builtin-baseline": "054bd01bec7f31492ec9ac063740cc984a0fe59e",
+  "dependencies": [
+    "freetype",
+    "lua",
+    "luafilesystem",
+    "lpeg",
+    "luasocket",
+    "luasec",
+    "sdl2",
+    "sdl2-mixer"
+  ],
+  "overrides": [
+    { "name": "lua", "version": "5.4.8" }
+  ]
+}
