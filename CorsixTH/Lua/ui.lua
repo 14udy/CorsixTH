@@ -1238,6 +1238,7 @@ function UI:resetTouch()
   self.touch_pending_move = false
   self.touch_pending_duration = false
   self.touch_origin = { x = -1, y = -1 }
+  self.touch_place = nil
   long_press_tick_countdown = ticks_for_long_press
   click_and_drag_tick_countdown = ticks_for_click_and_drag
 end
@@ -1270,6 +1271,11 @@ function UI:onTouchDown(fingerId, x, y)
 
   local absX = math.floor(x * self.app.config.width)
   local absY = math.floor(y * self.app.config.height)
+
+  if self:onTouchDownPlacing(absX, absY) then
+    return
+  end
+
   self.touch_origin.x = absX
   self.touch_origin.y = absY
   self.touch_down = true
@@ -1287,6 +1293,12 @@ function UI:onTouchUp(fingerId, x, y)
 
   local absX = math.floor(x * self.app.config.width)
   local absY = math.floor(y * self.app.config.height)
+
+  if self.touch_place then
+    self:onTouchUpPlacing(absX, absY)
+    self:resetTouch()
+    return
+  end
 
   if (self.touch_down) then
     -- If the finger has been pressed down, then synthesise the mouse down and up events at this location.
@@ -1311,6 +1323,11 @@ function UI:onTouchMove(fingerId, x, y, dx, dy)
   local absDX = math.floor(dx * self.app.config.width)
   local absDY = math.floor(dy * self.app.config.height)
 
+  if self.touch_place then
+    self:onTouchMovePlacing(absX, absY)
+    return
+  end
+
   -- Calculate the distance from the origin, and apply some threshold that must be crossed to determine this as a move event.
   local distance_threshold = 30
   local travel_dx = absX - self.touch_origin.x
@@ -1334,5 +1351,130 @@ function UI:onTouchMove(fingerId, x, y, dx, dy)
     self.touch_moving = true
     self:onMouseDown(1, self.touch_origin.x, self.touch_origin.y)
     self:onMouseMove(absX, absY, x- self.touch_origin.x, y - self.touch_origin.y, true) -- Adjust these so that the delta is in relation to the origin.
+  end
+end
+
+-- TOUCH: placing objects
+-- While an object (bench, desk, ...) is waiting to be placed, one finger moves
+-- it instead of placing it straight away:
+--  * drag starting on or near the object: the object follows the finger
+--  * drag starting anywhere else on the map: the map scrolls
+--  * tap on an empty spot: the object jumps there
+--  * tap on the object: place it
+--  * long press: rotate it (handled by onTouchTick as a right click)
+
+-- How far (pixels) a finger must move before a touch counts as a drag.
+local placing_drag_threshold = 12
+-- How many tiles around the object still count as touching it.
+local placing_grab_margin = 1
+
+--! The object placement window, if a touch at screen (x, y) should be
+--! handled by the placement controls rather than the normal touch handling.
+function UI:getTouchPlacementWindow(x, y)
+  if not self.ScreenToWorld or not self.app.world or
+      not self.app.world.user_actions_allowed then
+    return nil
+  end
+  local place = self:getWindow(UIPlaceObjects)
+  if not place or place.closed or not place.place_objects or #place.objects == 0 then
+    return nil
+  end
+  -- Touches on any window (including the placement window's own buttons)
+  -- work as normal.
+  for _, window in ipairs(self.windows) do
+    if window.visible ~= false and window:hitTest(x - window.x, y - window.y) then
+      return nil
+    end
+  end
+  return place
+end
+
+--! Whether screen point (x, y) is on, or within a tile of, the object being placed.
+function UI:isTouchOnPlacingObject(place, x, y)
+  if not place.object_cell_x or not place.object_cell_y then
+    return false
+  end
+  local wx, wy = self:ScreenToWorld(x, y)
+  wx, wy = math.floor(wx), math.floor(wy)
+  local object = place.objects[place.active_index].object
+  local footprint = object.orientations[place.object_orientation].footprint
+  for _, tile in ipairs(footprint) do
+    local tx = place.object_cell_x + tile[1]
+    local ty = place.object_cell_y + tile[2]
+    if math.abs(wx - tx) <= placing_grab_margin and math.abs(wy - ty) <= placing_grab_margin then
+      return true
+    end
+  end
+  return false
+end
+
+--! Move the object being placed so that it sits under screen point (x, y).
+function UI:movePlacingObjectTo(x, y)
+  -- Going through the game cursor keeps everything that re-reads the cursor
+  -- position (zooming, scrolling) in agreement with where the object is.
+  self.cursor_x, self.cursor_y = x, y
+  self:onCursorWorldPositionChange()
+end
+
+function UI:onTouchDownPlacing(x, y)
+  local place = self:getTouchPlacementWindow(x, y)
+  if not place then
+    return false
+  end
+  self:resetTouch()
+  -- touch_down / touch_pending_duration keep the long-press-to-rotate timer going.
+  self.touch_down = true
+  self.touch_pending_duration = true
+  self.touch_origin = { x = x, y = y }
+  local state = { window = place, last_x = x, last_y = y, dragging = false }
+  if self:isTouchOnPlacingObject(place, x, y) then
+    -- Remember where the object is relative to the finger, so it moves with
+    -- the finger rather than jumping under it.
+    local cx, cy = self:WorldToScreen(place.object_cell_x + 0.5, place.object_cell_y + 0.5)
+    state.grab = { dx = cx - x, dy = cy - y }
+  end
+  self.touch_place = state
+  return true
+end
+
+function UI:onTouchMovePlacing(x, y)
+  local state = self.touch_place
+  if state.window.closed then
+    return
+  end
+  if not state.dragging then
+    local tx, ty = x - self.touch_origin.x, y - self.touch_origin.y
+    if math.sqrt(tx * tx + ty * ty) < placing_drag_threshold then
+      return
+    end
+    state.dragging = true
+    -- Moving cancels the long press.
+    self.touch_moving = true
+    self.touch_pending_duration = false
+  end
+  if state.grab then
+    self:movePlacingObjectTo(x + state.grab.dx, y + state.grab.dy)
+  else
+    local zoom = self.zoom_factor or 1
+    self:scrollMap((state.last_x - x) / zoom, (state.last_y - y) / zoom, true)
+  end
+  state.last_x, state.last_y = x, y
+end
+
+function UI:onTouchUpPlacing(x, y)
+  local state = self.touch_place
+  local place = state.window
+  if state.dragging or place.closed or not place.place_objects or #place.objects == 0 then
+    return
+  end
+  if state.grab then
+    -- Tapped the object: place it, as a click would.
+    if place.object_blueprint_good then
+      place:placeObject()
+    else
+      self:tutorialStep(3, {13, 15}, 14)
+    end
+  else
+    self:movePlacingObjectTo(x, y)
   end
 end

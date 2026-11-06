@@ -955,9 +955,11 @@ function GameUI.limitPointToDiamond(dx, dy, visible_diamond, do_limit)
   return dx, dy, true
 end
 
-function GameUI:scrollMap(dx, dy)
+--!param force (boolean) Scroll even while editing a room (used by touch
+--! controls while placing objects).
+function GameUI:scrollMap(dx, dy, force)
 
-  if self.edit_room then
+  if self.edit_room and not force then
     return
   end
 
