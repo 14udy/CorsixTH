@@ -559,6 +559,12 @@ function UIPlaceObjects:draw(canvas, x, y)
   self.white_font:draw(canvas, self.title_text, x + 17, y + 21, 153, 0)
   self.white_font:drawWrapped(canvas, self.desc_text, x + 20, y + 46, 147)
 
+  -- TOUCH: the tick places the object; show it as usable when the spot is valid.
+  if self.ui.touch_controls and self.place_objects and #self.objects > 0 and
+      self.object_cell_x and self.object_blueprint_good and not self.confirm_button.enabled then
+    self.panel_sprites:draw(canvas, 121, x + 134, y + 100)
+  end
+
   for i, o in ipairs(self.objects) do
     local font = self.white_font
     local ypos = y + 136 + i * 29

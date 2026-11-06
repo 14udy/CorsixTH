@@ -1246,6 +1246,11 @@ end
 function UI:onTouchTick()
   -- This is called every tick when there's a touch down. Each tick is 30ms.
 
+  if self.touch_place then
+    self:onTouchTickPlacing()
+    return
+  end
+
   if (self.touch_pending_duration and not self.touch_moving) then
     long_press_tick_countdown = long_press_tick_countdown - 1
     if (long_press_tick_countdown == 0) then
@@ -1355,21 +1360,34 @@ function UI:onTouchMove(fingerId, x, y, dx, dy)
 end
 
 -- TOUCH: placing objects
--- While an object (bench, desk, ...) is waiting to be placed, one finger moves
--- it instead of placing it straight away:
---  * drag starting on or near the object: the object follows the finger
---  * drag starting anywhere else on the map: the map scrolls
---  * tap on an empty spot: the object jumps there
---  * tap on the object: place it
---  * long press: rotate it (handled by onTouchTick as a right click)
+-- While an object (bench, desk, ...) is waiting to be placed:
+--  * long press on the object: pick it up, then drag to move it
+--  * drag anywhere else (or without the long press): scroll the map
+--  * tap an empty spot: the object jumps there
+--  * double tap: rotate it
+--  * tap the tick in the placement window: place it
 
 -- How far (pixels) a finger must move before a touch counts as a drag.
 local placing_drag_threshold = 12
 -- How many tiles around the object still count as touching it.
 local placing_grab_margin = 1
+-- Long press to pick up the object, in ticks (30ms each).
+local placing_grab_ticks = 15
+-- Two taps within this time (ms) and distance (pixels) are a double tap.
+local placing_double_tap_ms = 350
+local placing_double_tap_distance = 40
+-- The tick (confirm) button in the placement window, relative to the window.
+local tick_button = { x = 135, y = 108, w = 43, h = 42 }
+
+local function inTickButton(place, x, y)
+  local rx, ry = x - place.x, y - place.y
+  return rx >= tick_button.x and rx < tick_button.x + tick_button.w and
+         ry >= tick_button.y and ry < tick_button.y + tick_button.h
+end
 
 --! The object placement window, if a touch at screen (x, y) should be
 --! handled by the placement controls rather than the normal touch handling.
+--!return (UIPlaceObjects, boolean) The window, and whether the touch is on its tick.
 function UI:getTouchPlacementWindow(x, y)
   if not self.ScreenToWorld or not self.app.world or
       not self.app.world.user_actions_allowed then
@@ -1379,14 +1397,17 @@ function UI:getTouchPlacementWindow(x, y)
   if not place or place.closed or not place.place_objects or #place.objects == 0 then
     return nil
   end
-  -- Touches on any window (including the placement window's own buttons)
-  -- work as normal.
+  if inTickButton(place, x, y) then
+    return place, true
+  end
+  -- Touches on any other window (including the rest of the placement
+  -- window) work as normal.
   for _, window in ipairs(self.windows) do
     if window.visible ~= false and window:hitTest(x - window.x, y - window.y) then
       return nil
     end
   end
-  return place
+  return place, false
 end
 
 --! Whether screen point (x, y) is on, or within a tile of, the object being placed.
@@ -1417,17 +1438,22 @@ function UI:movePlacingObjectTo(x, y)
 end
 
 function UI:onTouchDownPlacing(x, y)
-  local place = self:getTouchPlacementWindow(x, y)
+  local place, on_tick = self:getTouchPlacementWindow(x, y)
   if not place then
     return false
   end
+  -- Lets the placement window show the tick as usable.
+  self.touch_controls = true
   self:resetTouch()
-  -- touch_down / touch_pending_duration keep the long-press-to-rotate timer going.
+  -- touch_down keeps onTouchTick running (for the long press). The normal
+  -- long press (right click) is not used here.
   self.touch_down = true
-  self.touch_pending_duration = true
   self.touch_origin = { x = x, y = y }
-  local state = { window = place, last_x = x, last_y = y, dragging = false }
-  if self:isTouchOnPlacingObject(place, x, y) then
+  local state = {
+    window = place, on_tick = on_tick, last_x = x, last_y = y,
+    ticks = 0, grabbed = false, scrolling = false,
+  }
+  if not on_tick and self:isTouchOnPlacingObject(place, x, y) then
     -- Remember where the object is relative to the finger, so it moves with
     -- the finger rather than jumping under it.
     local cx, cy = self:WorldToScreen(place.object_cell_x + 0.5, place.object_cell_y + 0.5)
@@ -1437,24 +1463,32 @@ function UI:onTouchDownPlacing(x, y)
   return true
 end
 
+function UI:onTouchTickPlacing()
+  local state = self.touch_place
+  if state.grab and not state.grabbed and not state.scrolling then
+    state.ticks = state.ticks + 1
+    if state.ticks >= placing_grab_ticks then
+      state.grabbed = true
+      self:playSound("pickup.wav")
+    end
+  end
+end
+
 function UI:onTouchMovePlacing(x, y)
   local state = self.touch_place
-  if state.window.closed then
+  if state.window.closed or state.on_tick then
     return
   end
-  if not state.dragging then
-    local tx, ty = x - self.touch_origin.x, y - self.touch_origin.y
-    if math.sqrt(tx * tx + ty * ty) < placing_drag_threshold then
-      return
-    end
-    state.dragging = true
-    -- Moving cancels the long press.
-    self.touch_moving = true
-    self.touch_pending_duration = false
-  end
-  if state.grab then
+  if state.grabbed then
     self:movePlacingObjectTo(x + state.grab.dx, y + state.grab.dy)
   else
+    if not state.scrolling then
+      local tx, ty = x - self.touch_origin.x, y - self.touch_origin.y
+      if math.sqrt(tx * tx + ty * ty) < placing_drag_threshold then
+        return
+      end
+      state.scrolling = true
+    end
     local zoom = self.zoom_factor or 1
     self:scrollMap((state.last_x - x) / zoom, (state.last_y - y) / zoom, true)
   end
@@ -1464,17 +1498,39 @@ end
 function UI:onTouchUpPlacing(x, y)
   local state = self.touch_place
   local place = state.window
-  if state.dragging or place.closed or not place.place_objects or #place.objects == 0 then
+  if place.closed or not place.place_objects or #place.objects == 0 then
     return
   end
-  if state.grab then
-    -- Tapped the object: place it, as a click would.
-    if place.object_blueprint_good then
+
+  if state.on_tick then
+    if not inTickButton(place, x, y) then
+      return -- Finger slid off the button: cancel.
+    end
+    if place.object_cell_x and place.object_cell_y and place.object_blueprint_good then
       place:placeObject()
     else
+      self:playSound("wrong2.wav")
       self:tutorialStep(3, {13, 15}, 14)
     end
-  else
+    return
+  end
+
+  if state.grabbed or state.scrolling then
+    return
+  end
+
+  -- A tap.
+  local now = SDL.getTicks()
+  local last = self.touch_last_tap
+  if last and now - last.time <= placing_double_tap_ms and
+      math.abs(x - last.x) <= placing_double_tap_distance and
+      math.abs(y - last.y) <= placing_double_tap_distance then
+    self.touch_last_tap = nil
+    place:tryNextOrientation()
+    return
+  end
+  self.touch_last_tap = { time = now, x = x, y = y }
+  if not state.grab then
     self:movePlacingObjectTo(x, y)
   end
 end
